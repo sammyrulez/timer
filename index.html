@@ -316,6 +316,7 @@
   ], 'sine');
 
   // ---------- helpers ----------
+  const now = () => Date.now();   // orologio assoluto: regge il background
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, isNaN(v) ? lo : v));
   const fmt = s => {
     s = Math.max(0, Math.ceil(s));
@@ -369,32 +370,50 @@
       lockScreen();
       if (ac && ac.state === 'suspended') ac.resume();
       if (keepAlive) keepAlive.play().catch(() => {});
+      left = endAt - now();
+      if (left <= 0) advance(); else paint();
     }
   });
 
   // ---------- motore ----------
-  function startPhase(p) {
+  // anchor: istante in cui la fase sarebbe dovuta iniziare. Se la pagina era
+  // in background lo sforamento resta nel conteggio invece di essere perso.
+  function startPhase(p, anchor) {
     phase = p;
     phaseDur = p === 'work' ? cfg.work : cfg.rest;
-    left = phaseDur * 1000;
-    endAt = performance.now() + left;
+    endAt = (anchor === undefined ? now() : anchor) + phaseDur * 1000;
+    left = endAt - now();
     lastBeep = -1;
     paint();
   }
 
-  function nextPhase() {
+  // avanza di una sola fase, senza suoni: li decide advance()
+  function nextPhase(anchor) {
     if (phase === 'work') {
       if (round < cfg.rounds) {
-        if (cfg.rest > 0) { gong(); startPhase('rest'); }
-        else { gong(); round++; startPhase('work'); }
+        if (cfg.rest > 0) startPhase('rest', anchor);
+        else { round++; startPhase('work', anchor); }
       } else {
         done();
       }
     } else {
-      gong();
       round++;
-      startPhase('work');
+      startPhase('work', anchor);
     }
+  }
+
+  // Recupero del tempo trascorso: al rientro da background possono essere
+  // scadute più fasi in una volta. Le attraversa tutte e suona una volta sola.
+  function advance() {
+    let guard = 0;
+    while (left <= 0 && phase !== 'done' && guard++ < 10000) {
+      const anchor = endAt;
+      nextPhase(anchor);
+      if (phase === 'done') break;
+      left = endAt - now();
+      if (phaseDur <= 0) break;        // fase a durata zero: evita il ciclo infinito
+    }
+    if (phase !== 'done') { gong(); lastBeep = -1; paint(); }
   }
 
   function done() {
@@ -411,12 +430,12 @@
 
   function loop() {
     if (!running) return;
-    left = endAt - performance.now();
+    left = endAt - now();
     const secs = Math.ceil(left / 1000);
 
     if (secs <= 3 && secs > 0 && secs !== lastBeep) { lastBeep = secs; tick(); }
 
-    if (left <= 0) { nextPhase(); }
+    if (left <= 0) { advance(); }
     else { paint(); }
 
     raf = requestAnimationFrame(loop);
@@ -425,7 +444,7 @@
   function run() {
     if (running) return;
     running = true;
-    endAt = performance.now() + left;
+    endAt = now() + left;
     lockScreen();
     setIcon(true);
     raf = requestAnimationFrame(loop);
@@ -435,7 +454,7 @@
     if (!running) return;
     running = false;
     cancelAnimationFrame(raf);
-    left = endAt - performance.now();
+    left = endAt - now();
     unlockScreen();
     setIcon(false);
     paint();
@@ -503,7 +522,8 @@
   EL.skip.addEventListener('click', () => {
     if (phase === 'done') return;
     const wasRunning = running;
-    nextPhase();
+    nextPhase(now());
+    if (phase !== 'done') gong();
     if (!wasRunning && running === false) paint();
   });
 
