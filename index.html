@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>Round Timer</title>
+<style>
+  :root{
+    --bg:#0b0d10;
+    --panel:#14181e;
+    --line:#242b34;
+    --text:#f2f5f8;
+    --muted:#8b97a6;
+    --work:#ff5a36;
+    --rest:#3ddc97;
+    --done:#7aa2ff;
+    --radius:16px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:ui-sans-serif,-apple-system,"SF Pro Text","Segoe UI",Roboto,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+    user-select:none;
+    -webkit-user-select:none;
+  }
+  .screen{
+    position:fixed; inset:0;
+    display:flex; flex-direction:column;
+    padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    overflow-y:auto;
+  }
+  .screen[hidden]{display:none}
+
+  /* ---------- Setup ---------- */
+  #setup{align-items:center; justify-content:center; gap:22px; padding-top:24px; padding-bottom:24px}
+  .wrap{width:100%; max-width:420px; margin:auto}
+  h1{
+    font-size:13px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; margin:0 0 20px; text-align:center;
+  }
+  .field{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:14px 16px; margin-bottom:12px;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .field label{font-size:14px; color:var(--muted); font-weight:500}
+  .time{display:flex; align-items:center; gap:4px}
+  input[type=number]{
+    width:68px; background:transparent; border:0; color:var(--text);
+    font-size:30px; font-weight:650; text-align:center;
+    font-variant-numeric:tabular-nums; -moz-appearance:textfield;
+    border-bottom:2px solid transparent; padding:2px 0;
+  }
+  input[type=number]:focus{outline:none; border-bottom-color:var(--work)}
+  input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+  .colon{font-size:26px; font-weight:650; color:var(--muted)}
+  .unit{font-size:11px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; margin-left:2px}
+
+  .presets{display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 22px; justify-content:center}
+  .preset{
+    background:transparent; border:1px solid var(--line); color:var(--muted);
+    border-radius:999px; padding:7px 14px; font-size:12.5px; font-weight:550;
+    cursor:pointer; transition:.15s;
+  }
+  .preset:hover{border-color:var(--muted); color:var(--text)}
+
+  .btn{
+    width:100%; border:0; border-radius:var(--radius); padding:18px;
+    font-size:16px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    cursor:pointer; transition:.15s; font-family:inherit;
+  }
+  .btn-primary{background:var(--work); color:#fff}
+  .btn-primary:hover{filter:brightness(1.08)}
+  .total{text-align:center; color:var(--muted); font-size:12.5px; margin-top:14px; font-variant-numeric:tabular-nums}
+
+  /* ---------- Timer ---------- */
+  #timer{align-items:center; justify-content:center; text-align:center; gap:0}
+  .phase{
+    font-size:14px; letter-spacing:.28em; text-transform:uppercase; font-weight:700;
+    color:var(--c); margin-bottom:6px;
+  }
+  .ringbox{position:relative; width:min(78vw,340px); aspect-ratio:1; margin:6px 0 10px}
+  svg{width:100%; height:100%; transform:rotate(-90deg); display:block}
+  .track{fill:none; stroke:var(--line); stroke-width:6}
+  .bar{fill:none; stroke:var(--c); stroke-width:6; stroke-linecap:round; transition:stroke .3s}
+  .clock{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+  }
+  .big{
+    font-size:min(21vw,88px); font-weight:700; line-height:1;
+    font-variant-numeric:tabular-nums; letter-spacing:-.02em;
+  }
+  .round{font-size:13px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); margin-top:10px; font-weight:600}
+  .controls{display:flex; gap:12px; margin-top:4px}
+  .ctrl{
+    width:62px; height:62px; border-radius:50%; border:1px solid var(--line);
+    background:var(--panel); color:var(--text); cursor:pointer;
+    display:grid; place-items:center; transition:.15s;
+  }
+  .ctrl:hover{border-color:var(--muted)}
+  .ctrl.main{background:var(--c); border-color:var(--c); color:#0b0d10; width:76px; height:76px}
+  .ctrl svg{width:26px; height:26px; transform:none; fill:currentColor}
+  .ctrl.main svg{width:30px; height:30px}
+  .hint{color:var(--muted); font-size:11.5px; margin-top:16px; letter-spacing:.04em}
+  body.flash{animation:fl .4s}
+  @keyframes fl{0%,100%{background:var(--bg)}50%{background:#1d2127}}
+</style>
+</head>
+<body>
+
+<!-- SETUP -->
+<section class="screen" id="setup">
+  <div class="wrap">
+    <h1>Round Timer</h1>
+
+    <div class="field">
+      <label for="wm">Durata round</label>
+      <div class="time">
+        <input type="number" id="wm" min="0" max="99" value="3" inputmode="numeric">
+        <span class="colon">:</span>
+        <input type="number" id="ws" min="0" max="59" value="00" inputmode="numeric">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="rm">Pausa</label>
+      <div class="time">
+        <input type="number" id="rm" min="0" max="99" value="1" inputmode="numeric">
+        <span class="colon">:</span>
+        <input type="number" id="rs" min="0" max="59" value="00" inputmode="numeric">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="rounds">Numero di round</label>
+      <div class="time">
+        <input type="number" id="rounds" min="1" max="99" value="5" inputmode="numeric">
+        <span class="unit">rd</span>
+      </div>
+    </div>
+
+    <div class="presets">
+      <button class="preset" data-p="180,60,12">Boxe 3′/1′ ×12</button>
+      <button class="preset" data-p="300,60,5">MMA 5′/1′ ×5</button>
+      <button class="preset" data-p="40,20,8">HIIT 40″/20″ ×8</button>
+      <button class="preset" data-p="60,0,10">EMOM 1′ ×10</button>
+    </div>
+
+    <button class="btn btn-primary" id="start">Avvia</button>
+    <p class="total" id="total"></p>
+  </div>
+</section>
+
+<!-- TIMER -->
+<section class="screen" id="timer" hidden>
+  <div class="phase" id="phaseLabel">Round</div>
+
+  <div class="ringbox">
+    <svg viewBox="0 0 120 120">
+      <circle class="track" cx="60" cy="60" r="54"></circle>
+      <circle class="bar" id="bar" cx="60" cy="60" r="54"
+              stroke-dasharray="339.29" stroke-dashoffset="0"></circle>
+    </svg>
+    <div class="clock">
+      <div class="big" id="display">00:00</div>
+      <div class="round" id="roundLabel">1 / 5</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="ctrl" id="reset" title="Reimposta" aria-label="Reimposta">
+      <svg viewBox="0 0 24 24"><path d="M12 5V2L8 6l4 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+    </button>
+    <button class="ctrl main" id="toggle" title="Pausa / Riprendi" aria-label="Pausa o riprendi">
+      <svg viewBox="0 0 24 24"><path id="icon" d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+    </button>
+    <button class="ctrl" id="skip" title="Salta fase" aria-label="Salta fase">
+      <svg viewBox="0 0 24 24"><path d="M5 4l10 8-10 8zM17 4h3v16h-3z"/></svg>
+    </button>
+  </div>
+
+  <p class="hint">Spazio: pausa · R: reimposta · Esc: indietro</p>
+</section>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const EL = {
+    setup:$('setup'), timer:$('timer'), wm:$('wm'), ws:$('ws'), rm:$('rm'), rs:$('rs'),
+    rounds:$('rounds'), start:$('start'), total:$('total'), phaseLabel:$('phaseLabel'),
+    display:$('display'), roundLabel:$('roundLabel'), bar:$('bar'), toggle:$('toggle'),
+    icon:$('icon'), reset:$('reset'), skip:$('skip')
+  };
+  const CIRC = 2 * Math.PI * 54;
+  const ICON_PAUSE = 'M6 4h4v16H6zM14 4h4v16h-4z';
+  const ICON_PLAY  = 'M7 4l13 8-13 8z';
+
+  function setIcon(playing) {
+    EL.icon.setAttribute('d', playing ? ICON_PAUSE : ICON_PLAY);
+    EL.toggle.title = playing ? 'Pausa' : 'Riprendi';
+    EL.toggle.setAttribute('aria-label', playing ? 'Pausa' : 'Riprendi');
+  }
+
+  // ---------- stato ----------
+  let cfg = { work:180, rest:60, rounds:5 };
+  let phase = 'work';          // 'work' | 'rest' | 'done'
+  let round = 1;
+  let phaseDur = 0;            // secondi della fase corrente
+  let endAt = 0;               // timestamp di fine fase
+  let left = 0;                // ms residui (usato in pausa)
+  let running = false;
+  let raf = 0;
+  let lastBeep = -1;
+  let wakeLock = null;
+
+  // ---------- audio ----------
+  let ac = null;
+  function beep(freq, dur, vol) {
+    try {
+      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(ac.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  // sequenza di note schedulata sul clock audio: [freq, inizio(s), durata(s), volume]
+  function seq(notes, type) {
+    try {
+      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      const t0 = ac.currentTime + 0.02;
+      notes.forEach(([freq, at, dur, vol]) => {
+        const o = ac.createOscillator(), g = ac.createGain(), t = t0 + at;
+        o.type = type || 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(vol, t + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g).connect(ac.destination);
+        o.start(t); o.stop(t + dur + 0.02);
+      });
+    } catch (e) {}
+  }
+
+  const tick   = () => beep(880, 0.12, 0.35);
+  const gong   = () => { beep(440, 0.6, 0.45); setTimeout(() => beep(330, 0.8, 0.4), 90); };
+
+  // avvio: due note ascendenti secche (pronti, via)
+  const startSound = () => seq([
+    [587.33, 0.00, 0.16, 0.40],   // Re5
+    [880.00, 0.14, 0.30, 0.45]    // La5
+  ], 'triangle');
+
+  // fine: tre note discendenti lunghe, con quinta sotto per corposità
+  const finish = () => seq([
+    [783.99, 0.00, 0.45, 0.42],   // Sol5
+    [587.33, 0.30, 0.50, 0.42],   // Re5
+    [392.00, 0.62, 1.20, 0.45],   // Sol4
+    [196.00, 0.62, 1.30, 0.28]    // Sol3
+  ], 'sine');
+
+  // ---------- helpers ----------
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, isNaN(v) ? lo : v));
+  const fmt = s => {
+    s = Math.max(0, Math.ceil(s));
+    const m = Math.floor(s / 60);
+    return String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  };
+  const human = s => {
+    const m = Math.floor(s / 60), r = s % 60;
+    return (m ? m + ' min ' : '') + (r ? r + ' s' : (m ? '' : '0 s'));
+  };
+
+  function readConfig() {
+    return {
+      work:  clamp(+EL.wm.value, 0, 99) * 60 + clamp(+EL.ws.value, 0, 59),
+      rest:  clamp(+EL.rm.value, 0, 99) * 60 + clamp(+EL.rs.value, 0, 59),
+      rounds: clamp(+EL.rounds.value, 1, 99)
+    };
+  }
+  function updateTotal() {
+    const c = readConfig();
+    const t = c.work * c.rounds + c.rest * Math.max(0, c.rounds - 1);
+    EL.total.textContent = c.work === 0
+      ? 'Imposta una durata del round maggiore di zero'
+      : 'Totale ' + human(t) + ' · ' + c.rounds + ' round' + (c.rest ? ' · pausa ' + human(c.rest) : ' · nessuna pausa');
+  }
+
+  // ---------- persistenza ----------
+  function save() {
+    try { localStorage.setItem('roundtimer', JSON.stringify(readConfig())); } catch (e) {}
+  }
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem('roundtimer') || 'null');
+      if (!s) return;
+      EL.wm.value = Math.floor(s.work / 60); EL.ws.value = pad(s.work % 60);
+      EL.rm.value = Math.floor(s.rest / 60); EL.rs.value = pad(s.rest % 60);
+      EL.rounds.value = s.rounds;
+    } catch (e) {}
+  }
+  const pad = n => String(n).padStart(2, '0');
+
+  // ---------- wake lock ----------
+  async function lockScreen() {
+    try { if ('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+  function unlockScreen() {
+    try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && running) lockScreen();
+  });
+
+  // ---------- motore ----------
+  function startPhase(p) {
+    phase = p;
+    phaseDur = p === 'work' ? cfg.work : cfg.rest;
+    left = phaseDur * 1000;
+    endAt = performance.now() + left;
+    lastBeep = -1;
+    paint();
+  }
+
+  function nextPhase() {
+    if (phase === 'work') {
+      if (round < cfg.rounds) {
+        if (cfg.rest > 0) { gong(); startPhase('rest'); }
+        else { gong(); round++; startPhase('work'); }
+      } else {
+        done();
+      }
+    } else {
+      gong();
+      round++;
+      startPhase('work');
+    }
+  }
+
+  function done() {
+    running = false;
+    cancelAnimationFrame(raf);
+    phase = 'done';
+    left = 0;
+    finish();
+    unlockScreen();
+    document.body.classList.add('flash');
+    setTimeout(() => document.body.classList.remove('flash'), 400);
+    paint();
+  }
+
+  function loop() {
+    if (!running) return;
+    left = endAt - performance.now();
+    const secs = Math.ceil(left / 1000);
+
+    if (secs <= 3 && secs > 0 && secs !== lastBeep) { lastBeep = secs; tick(); }
+
+    if (left <= 0) { nextPhase(); }
+    else { paint(); }
+
+    raf = requestAnimationFrame(loop);
+  }
+
+  function run() {
+    if (running) return;
+    running = true;
+    endAt = performance.now() + left;
+    lockScreen();
+    setIcon(true);
+    raf = requestAnimationFrame(loop);
+  }
+
+  function pause() {
+    if (!running) return;
+    running = false;
+    cancelAnimationFrame(raf);
+    left = endAt - performance.now();
+    unlockScreen();
+    setIcon(false);
+    paint();
+  }
+
+  // ---------- rendering ----------
+  function paint() {
+    const color = phase === 'work' ? 'var(--work)' : phase === 'rest' ? 'var(--rest)' : 'var(--done)';
+    EL.timer.style.setProperty('--c', color);
+
+    if (phase === 'done') {
+      EL.phaseLabel.textContent = 'Completato';
+      EL.display.textContent = '00:00';
+      EL.roundLabel.textContent = cfg.rounds + ' round · ' + human(cfg.work * cfg.rounds);
+      EL.bar.style.strokeDashoffset = CIRC;
+      setIcon(false);
+      return;
+    }
+
+    EL.phaseLabel.textContent = phase === 'work' ? 'Round' : 'Pausa';
+    EL.display.textContent = fmt(left / 1000);
+    EL.roundLabel.textContent = round + ' / ' + cfg.rounds;
+    const prog = phaseDur > 0 ? 1 - left / (phaseDur * 1000) : 1;
+    EL.bar.style.strokeDashoffset = CIRC * Math.min(1, Math.max(0, prog));
+  }
+
+  // ---------- navigazione ----------
+  function openTimer() {
+    cfg = readConfig();
+    if (cfg.work <= 0) { EL.wm.focus(); updateTotal(); return; }
+    save();
+    round = 1;
+    EL.setup.hidden = true;
+    EL.timer.hidden = false;
+    startSound();                      // suono di avvio (sblocca l'audio sul gesto utente)
+    startPhase('work');
+    run();
+  }
+
+  function backToSetup() {
+    pause();
+    unlockScreen();
+    EL.timer.hidden = true;
+    EL.setup.hidden = false;
+    updateTotal();
+  }
+
+  function resetAll() {
+    pause();
+    round = 1;
+    startPhase('work');
+    setIcon(false);
+  }
+
+  // ---------- eventi ----------
+  EL.start.addEventListener('click', openTimer);
+
+  EL.toggle.addEventListener('click', () => {
+    if (phase === 'done') { resetAll(); startSound(); run(); return; }
+    running ? pause() : run();
+  });
+
+  EL.reset.addEventListener('click', resetAll);
+
+  EL.skip.addEventListener('click', () => {
+    if (phase === 'done') return;
+    const wasRunning = running;
+    nextPhase();
+    if (!wasRunning && running === false) paint();
+  });
+
+  document.querySelectorAll('.preset').forEach(b => {
+    b.addEventListener('click', () => {
+      const [w, r, n] = b.dataset.p.split(',').map(Number);
+      EL.wm.value = Math.floor(w / 60); EL.ws.value = pad(w % 60);
+      EL.rm.value = Math.floor(r / 60); EL.rs.value = pad(r % 60);
+      EL.rounds.value = n;
+      updateTotal();
+    });
+  });
+
+  [EL.wm, EL.ws, EL.rm, EL.rs, EL.rounds].forEach(i => {
+    i.addEventListener('input', updateTotal);
+    i.addEventListener('focus', () => i.select());
+    i.addEventListener('blur', () => {
+      if (i === EL.ws || i === EL.rs) i.value = pad(clamp(+i.value, 0, 59));
+      updateTotal();
+    });
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') {
+      if (e.key === 'Enter') { e.target.blur(); openTimer(); }
+      return;
+    }
+    if (e.code === 'Space') { e.preventDefault(); EL.toggle.click(); }
+    else if (e.key.toLowerCase() === 'r') resetAll();
+    else if (e.key === 'Escape' && !EL.timer.hidden) backToSetup();
+  });
+
+  load();
+  updateTotal();
+})();
+</script>
+</body>
+</html>
