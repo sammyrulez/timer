@@ -222,11 +222,56 @@
   let wakeLock = null;
 
   // ---------- audio ----------
+  // iOS: il contesto va creato e sbloccato dentro un gesto dell'utente, e la
+  // sessione va dichiarata 'playback', altrimenti l'interruttore Silenzioso
+  // zittisce il Web Audio.
   let ac = null;
+  let keepAlive = null;
+
+  function audioCtx() {
+    if (!ac) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ac = new AC();
+    }
+    if (ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+
+  function unlockAudio() {
+    try {
+      // iOS 16.4+ / Safari 17: ignora l'interruttore Suoneria/Silenzioso
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch (e) {}
+    try {
+      // fallback per iOS più vecchi: un elemento <audio> in loop porta la
+      // sessione in categoria 'playback'
+      if (!keepAlive) {
+        keepAlive = new Audio('data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==');
+        keepAlive.loop = true;
+        keepAlive.volume = 0.001;
+        keepAlive.setAttribute('playsinline', '');
+      }
+      keepAlive.play().catch(() => {});
+    } catch (e) {}
+    try {
+      const c = audioCtx();
+      if (!c) return;
+      // buffer muto: su iOS è ciò che "apre" davvero il contesto
+      const src = c.createBufferSource();
+      src.buffer = c.createBuffer(1, 1, 22050);
+      src.connect(c.destination);
+      src.start(0);
+    } catch (e) {}
+  }
+
+  // qualunque primo tocco sblocca l'audio, non solo il pulsante Avvia
+  ['pointerdown', 'touchend', 'keydown'].forEach(ev =>
+    document.addEventListener(ev, unlockAudio, { capture: true }));
+
   function beep(freq, dur, vol) {
     try {
-      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
-      if (ac.state === 'suspended') ac.resume();
+      if (!audioCtx()) return;
       const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
       o.type = 'sine'; o.frequency.value = freq;
       g.gain.setValueAtTime(0, t);
@@ -239,9 +284,8 @@
   // sequenza di note schedulata sul clock audio: [freq, inizio(s), durata(s), volume]
   function seq(notes, type) {
     try {
-      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
-      if (ac.state === 'suspended') ac.resume();
-      const t0 = ac.currentTime + 0.02;
+      if (!audioCtx()) return;
+      const t0 = ac.currentTime + 0.05;
       notes.forEach(([freq, at, dur, vol]) => {
         const o = ac.createOscillator(), g = ac.createGain(), t = t0 + at;
         o.type = type || 'sine'; o.frequency.value = freq;
@@ -321,7 +365,11 @@
     try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
   }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && running) lockScreen();
+    if (document.visibilityState === 'visible' && running) {
+      lockScreen();
+      if (ac && ac.state === 'suspended') ac.resume();
+      if (keepAlive) keepAlive.play().catch(() => {});
+    }
   });
 
   // ---------- motore ----------
